@@ -1182,7 +1182,7 @@
     .dp-win {
       position: relative;
       width: 100%;
-      aspect-ratio: 1 / 1;   /* placeholder until the natural ratio is set (JS) */
+      aspect-ratio: 3 / 4;   /* every preview widget is 4:3 vertical (3:4 portrait) */
       border-radius: 12px;   /* rounded corners on every preview card */
       overflow: hidden;
     }
@@ -1219,6 +1219,61 @@
         radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 42%, rgba(0, 0, 0, 0.55) 100%),
         rgba(0, 0, 0, var(--dp-tint, 0.35));
     }
+
+    /* ============ PART-INSTANCE VERTICAL SLIDER ============ */
+    /* A deliverable TYPE that has PARTS lays its parts out as columns across    */
+    /* the type (the existing horizontal slider). Within each part column, its   */
+    /* instance cards are wrapped in a fixed ONE-CARD-TALL vertical scroller, so  */
+    /* the parts row never grows with instance count: one instance shows at a     */
+    /* time and the user scrolls vertically (snap) through the rest, with a small */
+    /* down-arrow "scroll for more" hint. The exact one-card height is set per    */
+    /* column in JS. Types with NO parts keep their horizontal instance slider.   */
+    .part-vwrap {
+      position: relative;
+      margin-top: 1.5rem; /* matches the card's original gap under the part label */
+    }
+    .part-vscroll {
+      overflow-y: auto;
+      overflow-x: hidden;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(177, 247, 204, 0.4) transparent;
+    }
+    .part-vscroll::-webkit-scrollbar { width: 8px; }
+    .part-vscroll::-webkit-scrollbar-track { background: transparent; }
+    .part-vscroll::-webkit-scrollbar-thumb {
+      background-color: rgba(177, 247, 204, 0.3);
+      border-radius: 9999px;
+    }
+    /* Cards snap one at a time; first flush to the top, the rest keep the gap. */
+    .part-vscroll > .block-card { scroll-snap-align: start; margin-top: 0; }
+    .part-vscroll > .block-card + .block-card { margin-top: 1.5rem; }
+    /* "Scroll for more" affordance: a small sage down-arrow at the window's      */
+    /* bottom, fading out once the column is scrolled to its end. Absolutely      */
+    /* positioned (adds no height) and never intercepts clicks.                   */
+    .part-vmore {
+      position: absolute;
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      z-index: 4;
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--sage);
+      color: #16241b;
+      font-size: 0.8rem;
+      line-height: 1;
+      pointer-events: none;
+      box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.55);
+      opacity: 0.9;
+      transition: opacity 0.2s ease;
+    }
+    .part-vwrap.part-at-end .part-vmore { opacity: 0; }
   </style>
 
   <script>
@@ -2687,8 +2742,9 @@
         pre.appendChild(win);
         wrapDiv.parentNode.insertBefore(pre, wrapDiv); // between sample-label and CTA
 
-        // Natural ratio for everything except landing pages (fixed 3:4).
-        function render() { renderImage(win, imgList, !isScroll); }
+        // Every preview widget is a fixed 4:3-vertical (3:4) card — never take
+        // the image's natural ratio; the image fills via object-fit:cover.
+        function render() { renderImage(win, imgList, false); }
         return { win: win, render: render };
       }
 
@@ -2706,6 +2762,74 @@
       // defers the actual image FETCH until it nears the viewport, so we keep
       // the lazy-fetch win without gating render on the observer.)
       items.forEach(function (it) { it.render(); });
+    })();
+
+    // ===========================================================
+    // PART-INSTANCE VERTICAL SLIDERS
+    // For each deliverable TYPE that has PARTS, the parts sit as columns across
+    // the type (the existing horizontal slider). Within each part column, wrap
+    // its instance cards in a fixed ONE-CARD-TALL vertical scroller (scroll-snap)
+    // so the parts row never grows with instance count and one instance shows at
+    // a time; a small down-arrow hints "scroll for more". Types with NO parts put
+    // their instance cards directly in the slider (no wrapper div) and are left
+    // untouched. Runs AFTER previews are built so heights include them; a
+    // ResizeObserver re-fits when preview images load or the viewport changes.
+    // ===========================================================
+    (function () {
+      // A "part column" is a direct <div> child of a .deliverables-slider that
+      // holds instance .block-cards. (No-part types place .block-cards directly
+      // in the slider, so they have no such wrapper div and are skipped.)
+      var built = [];
+      document.querySelectorAll(".deliverables-slider > div").forEach(function (col) {
+        var cards = [];
+        for (var i = 0; i < col.children.length; i++) {
+          var ch = col.children[i];
+          if (ch.classList && ch.classList.contains("block-card")) cards.push(ch);
+        }
+        if (!cards.length) return;
+
+        var wrap = document.createElement("div");
+        wrap.className = "part-vwrap";
+        var scroll = document.createElement("div");
+        scroll.className = "part-vscroll";
+        // Move cards into the scroller (preserves their listeners + previews).
+        cards.forEach(function (c) { scroll.appendChild(c); });
+        wrap.appendChild(scroll);
+        col.appendChild(wrap); // sits after the part label / info button
+
+        if (cards.length > 1) {
+          var more = document.createElement("span");
+          more.className = "part-vmore";
+          more.setAttribute("aria-hidden", "true");
+          more.textContent = "▾"; // ▾
+          wrap.appendChild(more);
+          scroll.addEventListener("scroll", function () {
+            var atEnd = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 2;
+            wrap.classList.toggle("part-at-end", atEnd);
+          }, { passive: true });
+        }
+        built.push({ scroll: scroll, cards: cards });
+      });
+      if (!built.length) return;
+
+      // Cap each scroller to its tallest card, so exactly ONE instance card's
+      // height shows and the row never grows with instance count. (Every card is
+      // now a uniform 3:4 preview, so the tallest is simply one card.)
+      function fit() {
+        built.forEach(function (b) {
+          var h = 0;
+          b.cards.forEach(function (c) { if (c.offsetHeight > h) h = c.offsetHeight; });
+          if (h) b.scroll.style.height = h + "px";
+        });
+      }
+      var raf = window.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
+      raf(fit);
+      window.addEventListener("load", fit);
+      window.addEventListener("resize", function () { raf(fit); }, { passive: true });
+      if ("ResizeObserver" in window) {
+        var ro = new ResizeObserver(function () { raf(fit); });
+        built.forEach(function (b) { b.cards.forEach(function (c) { ro.observe(c); }); });
+      }
     })();
 
     // ===========================================================
