@@ -2699,22 +2699,13 @@
       });
       if (!items.length) return;
 
-      // LAZY: fetch/render each preview image only when its card nears the
-      // viewport (~200px), so no full-size preview asset is requested on first
-      // load. The cards themselves are already visible immediately (reveal-on-
-      // scroll is disabled); only the preview media defers.
-      if (!("IntersectionObserver" in window)) {
-        items.forEach(function (it) { it.render(); });
-        return;
-      }
-      var io = new IntersectionObserver(function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-          io.unobserve(entry.target);
-          if (entry.target.__dp) entry.target.__dp.render();
-        });
-      }, { rootMargin: "200px 0px" });
-      items.forEach(function (it) { it.win.__dp = it; io.observe(it.win); });
+      // Build every preview immediately on load. (An IntersectionObserver gate
+      // was tried for lazy RENDERING, but it does not fire reliably for these
+      // windows inside the transform-scaled, overflow-clipped .page, which left
+      // previews blank. Native loading="lazy" on each preview <img> still
+      // defers the actual image FETCH until it nears the viewport, so we keep
+      // the lazy-fetch win without gating render on the observer.)
+      items.forEach(function (it) { it.render(); });
     })();
 
     // ===========================================================
